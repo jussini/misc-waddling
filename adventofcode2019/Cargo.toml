@@ -1,0 +1,52 @@
+[package]
+name = "adventofcode2019"
+version = "0.1.0"
+authors = ["Jussi Niskanen <jussini@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cached = "0.11.0"
+permutohedron = "0.2.4"
+
+[lib]
+name = "intcode"
+path = "src/intcode.rs"
+test = true
+
+[[bin]]
+name = "day01"
+path = "src/day01/main.rs"
+
+[[bin]]
+name = "day02"
+path = "src/day02/main.rs"
+
+[[bin]]
+name = "day03"
+path = "src/day03/main.rs"
+
+[[bin]]
+name = "day04"
+path = "src/day04/main.rs"
+
+[[bin]]
+name = "day05"
+path = "src/day05/main.rs"
+
+[[bin]]
+name = "day06"
+path = "src/day06/main.rs"
+
+[[bin]]
+name = "day07"
+path = "src/day07/main.rs"
+
+[[bin]]
+name = "day08"
+path = "src/day08/main.rs"
+
+[[bin]]
+name = "day09"
+path = "src/day09/main.rs"
