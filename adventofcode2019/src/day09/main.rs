@@ -12,7 +12,5 @@ fn main() {
 
     let mut memory: Vec<i64> = contents.split(",").map(parse).collect();
     intcode::run_program(&mut memory, &mut None, &mut None);
- //   intcode::print_code(&memory);
 
 }
-

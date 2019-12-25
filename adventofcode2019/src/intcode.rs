@@ -6,6 +6,7 @@ use std::collections::HashMap;
 enum ParamMode {
     Position,
     Immediate,
+    Relative,
 }
 
 pub struct Execution {
@@ -15,34 +16,37 @@ pub struct Execution {
 }
 
 
-pub fn execute_instruction(memory: &mut HashMap<usize, i64>, ip: usize, inputs: &mut Option<&mut Vec<i64>>, outputs: &mut Option<&mut Vec<i64>>) -> usize{
+pub fn execute_instruction(memory: &mut HashMap<usize, i64>, ip: usize, inputs: &mut Option<&mut Vec<i64>>, outputs: &mut Option<&mut Vec<i64>>, relative_base: &mut isize) -> usize{
 
     let opcode = memory[&ip] % 100;
 
     return match opcode {
-        1  => add(memory, ip),
-        2  => mul(memory, ip),
-        3  => input(memory, ip, inputs),
-        4  => output(memory, ip, outputs),
-        5  => jump_if_true(memory, ip),
-        6  => jump_if_false(memory, ip),
-        7  => less_than(memory, ip),
-        8  => equals(memory, ip),
+        1  => add(memory, ip, relative_base),
+        2  => mul(memory, ip, relative_base),
+        3  => input(memory, ip, inputs, relative_base),
+        4  => output(memory, ip, outputs, relative_base),
+        5  => jump_if_true(memory, ip, relative_base),
+        6  => jump_if_false(memory, ip, relative_base),
+        7  => less_than(memory, ip, relative_base),
+        8  => equals(memory, ip, relative_base),
+        9  => adjust_relative_base(memory, ip, relative_base),
         _  => panic!("Unknown opcode: {}", opcode),
     }
 }
 
 pub fn run_program(program: &mut Vec<i64>, inputs: &mut Option<&mut Vec<i64>>, outputs: &mut Option<&mut Vec<i64>>) {
     let mut ip = 0;
+    let mut relative_base = 0;
     let mut memory = program_to_memory(program);
-    println!("Memory after reading program {:?}", memory);
+//    println!("Memory after reading program {:?}", memory);
+//    print_memory(&memory);
     while program[ip] != 99 {
-        ip = execute_instruction(&mut memory, ip, inputs, outputs);
+        ip = execute_instruction(&mut memory, ip, inputs, outputs, &mut relative_base);
     }
 }
 
 // Will break day 7 but i can't be arse to refactor 
-pub fn run_execution(execution: &mut Execution, outputs: &mut Option<&mut Vec<i64>>) -> Option<i64> {
+pub fn run_execution(_execution: &mut Execution, _outputs: &mut Option<&mut Vec<i64>>) -> Option<i64> {
     None
 }
 /*
@@ -66,13 +70,37 @@ pub fn print_code(code: &Vec<i64>) {
     println!("");
 }
 
-fn get_parameter(program: &HashMap<usize, i64>, address: usize, mode: &ParamMode) -> i64 {
+
+pub fn print_memory(memory:  &HashMap<usize, i64>) {
+    let mut keys: Vec<&usize> = memory.keys().collect();
+    keys.sort();
+    for k in keys {
+        print!("{}:{}, ", k, memory[k]);
+    }
+    println!("");
+}
+
+fn get_parameter(program: &HashMap<usize, i64>, address: usize, mode: &ParamMode, relative_base: &isize) -> i64 {
     match mode {
         ParamMode::Position => {
             let position: usize = (*program.get(&address).unwrap_or(&0)) as usize;
             *program.get(&(position as usize)).unwrap_or(&0)
-        },//program[&(program[&address] as usize)],
+        },
         ParamMode::Immediate => program[&address],
+        ParamMode::Relative => {
+            let position: isize = (*program.get(&address).unwrap_or(&0)) as isize;
+//            *program.get(&(position as usize + relative_base)).unwrap_or(&0)
+            *program.get(&((position + relative_base) as usize)).unwrap_or(&0)
+        },
+    }
+}
+
+fn relative(address: i64, relative_base: &isize, mode: &ParamMode) -> usize {
+    match mode {
+        ParamMode::Relative  => {
+            (address + (*relative_base as i64)) as usize
+        },
+        _ => address as usize
     }
 }
 
@@ -82,6 +110,7 @@ fn get_parameter_modes(opcode: i64) -> (ParamMode, ParamMode, ParamMode) {
     let opcode: String = format!("{:0>5}", opcode);
     let immediate = '1' as u8;
     let positional = '0' as u8;
+    let relative = '2' as u8;
     let bytes = opcode.as_bytes();
 
     let mode = |character: u8| -> ParamMode {
@@ -89,7 +118,10 @@ fn get_parameter_modes(opcode: i64) -> (ParamMode, ParamMode, ParamMode) {
             return ParamMode::Immediate;
         } else if character == positional {
             return ParamMode::Position;
-        } else {
+        } else if character == relative {
+            return ParamMode::Relative;
+        }        
+        else {
             panic!("Unknown parameter mode: {}", character);
         }
     }; 
@@ -99,28 +131,34 @@ fn get_parameter_modes(opcode: i64) -> (ParamMode, ParamMode, ParamMode) {
 
 } 
 
-fn add(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
+fn add(program: &mut HashMap<usize, i64>, ip: usize, relative_base: &isize) -> usize {
     let param_modes = get_parameter_modes(program[&ip]);
-    let a = get_parameter(program, ip+1, &param_modes.0);
-    let b = get_parameter(program, ip+2, &param_modes.1);
-    let to = program[&(ip+3)] as usize;
+    let a = get_parameter(program, ip+1, &param_modes.0, relative_base);
+    let b = get_parameter(program, ip+2, &param_modes.1, relative_base);
+    let to = program[&(ip+3)];
+    let to = relative(to, &relative_base, &param_modes.2);
+    
     program.insert(to, a + b); //[&to] = a + b;
     
     ip + 4
 }
 
-fn mul(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
+fn mul(program: &mut HashMap<usize, i64>, ip: usize, relative_base: &isize) -> usize {
     let param_modes = get_parameter_modes(program[&ip]);
-    let a = get_parameter(program, ip+1, &param_modes.0);
-    let b = get_parameter(program, ip+2, &param_modes.1);
-    let to = program[&(ip+3)] as usize;
+    let a = get_parameter(program, ip+1, &param_modes.0, relative_base);
+    let b = get_parameter(program, ip+2, &param_modes.1, relative_base);
+    let to = program[&(ip+3)];
+    let to = relative(to, &relative_base, &param_modes.2);
     program.insert(to, a * b); //[&to] = a * b;
 
     ip + 4
 }
 
-fn input(program: &mut HashMap<usize, i64>, ip: usize, inputs: &mut Option<&mut Vec<i64>>) -> usize {
-    let to = program[&(ip + 1)] as usize;
+fn input(program: &mut HashMap<usize, i64>, ip: usize, inputs: &mut Option<&mut Vec<i64>>, relative_base: &isize) -> usize {
+    let param_modes = get_parameter_modes(program[&ip]);
+    let to = program[&(ip+1)];
+    let to = relative(to, &relative_base, &param_modes.0);
+    //println!("Input to {}, param {}, base {}", to, program[&(ip+1)], relative_base);
 
     let mut input = String::new();
 
@@ -144,9 +182,9 @@ fn input(program: &mut HashMap<usize, i64>, ip: usize, inputs: &mut Option<&mut 
     ip + 2
 }
 
-fn output(program: &mut HashMap<usize, i64>, ip: usize, outputs: &mut Option<&mut Vec<i64>>) -> usize {
+fn output(program: &mut HashMap<usize, i64>, ip: usize, outputs: &mut Option<&mut Vec<i64>>, relative_base: &isize) -> usize {
     let param_modes = get_parameter_modes(program[&ip]);
-    let value = get_parameter(program, ip+1, &param_modes.0);
+    let value = get_parameter(program, ip+1, &param_modes.0, relative_base);
 
     match outputs {
         Some(output_vec) => output_vec.push(value),
@@ -156,20 +194,20 @@ fn output(program: &mut HashMap<usize, i64>, ip: usize, outputs: &mut Option<&mu
     ip + 2
 }
 
-fn jump_if_true(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
+fn jump_if_true(program: &mut HashMap<usize, i64>, ip: usize, relative_base: &isize) -> usize {
     let param_modes = get_parameter_modes(program[&ip]);
-    let a = get_parameter(program, ip+1, &param_modes.0);
-    let b = get_parameter(program, ip+2, &param_modes.1) as usize;
+    let a = get_parameter(program, ip+1, &param_modes.0, relative_base);
+    let b = get_parameter(program, ip+2, &param_modes.1, relative_base) as usize;
     return match a != 0 {
         true => b,
         false => ip + 3
     };
 }
 
-fn jump_if_false(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
+fn jump_if_false(program: &mut HashMap<usize, i64>, ip: usize, relative_base: &isize) -> usize {
     let param_modes = get_parameter_modes(program[&ip]);
-    let a = get_parameter(program, ip+1, &param_modes.0);
-    let b = get_parameter(program, ip+2, &param_modes.1) as usize;
+    let a = get_parameter(program, ip+1, &param_modes.0, relative_base);
+    let b = get_parameter(program, ip+2, &param_modes.1, relative_base) as usize;
     match a == 0 {
         true => b,
         false => ip + 3
@@ -177,11 +215,12 @@ fn jump_if_false(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
 }
 
 
-fn less_than(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
+fn less_than(program: &mut HashMap<usize, i64>, ip: usize, relative_base: &isize) -> usize {
     let param_modes = get_parameter_modes(program[&ip]);
-    let a = get_parameter(program, ip+1, &param_modes.0);
-    let b = get_parameter(program, ip+2, &param_modes.1);
-    let to = program[&(ip+3)] as usize;
+    let a = get_parameter(program, ip+1, &param_modes.0, relative_base);
+    let b = get_parameter(program, ip+2, &param_modes.1, relative_base);
+    let to = program[&(ip+3)];
+    let to = relative(to, &relative_base, &param_modes.2);
     match a < b {
         true => program.insert(to, 1),
         false => program.insert(to, 0)
@@ -189,17 +228,28 @@ fn less_than(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
     ip + 4
 }
 
-fn equals(program: &mut HashMap<usize, i64>, ip: usize) -> usize {
+fn equals(program: &mut HashMap<usize, i64>, ip: usize, relative_base: &isize) -> usize {
     let param_modes = get_parameter_modes(program[&ip]);
-    let a = get_parameter(program, ip+1, &param_modes.0);
-    let b = get_parameter(program, ip+2, &param_modes.1);
-    let to = program[&(ip+3)] as usize;
+    let a = get_parameter(program, ip+1, &param_modes.0, relative_base);
+    let b = get_parameter(program, ip+2, &param_modes.1, relative_base);
+    let to = program[&(ip+3)];
+    let to = relative(to, &relative_base, &param_modes.2);
     match a == b {
         true => program.insert(to, 1),
         false => program.insert(to, 0)
     };
     ip + 4
 }
+
+
+fn adjust_relative_base(program: &mut HashMap<usize, i64>, ip: usize, relative_base: &mut isize) -> usize {
+    let param_modes = get_parameter_modes(program[&ip]);
+    let a = get_parameter(program, ip+1, &param_modes.0, relative_base) as isize;
+    *relative_base = *relative_base + a;
+
+    ip + 2
+}
+
 
 fn program_to_memory(program: &Vec<i64>) -> HashMap<usize, i64> {
     let mut memory: HashMap<usize, i64> = HashMap::new();
@@ -217,7 +267,7 @@ mod tests {
     #[test]
     fn test_add() {
         let mut v = program_to_memory(&vec![1, 5, 6, 7, 99, 10, 20, 0]);
-        let ip = add(&mut v, 0);
+        let ip = add(&mut v, 0, &0);
         assert_eq!(ip, 4);
         assert_eq!(v[&7], 30);
     }
@@ -225,7 +275,7 @@ mod tests {
     #[test]
     fn test_add_immediate() {
         let mut v = program_to_memory(&vec![101, 5, 6, 7, 99, 10, 20, 0]);
-        let ip = add(&mut v, 0);
+        let ip = add(&mut v, 0, &0);
         assert_eq!(ip, 4);
         assert_eq!(v[&7], 25); // 5 + 20
     }
@@ -233,7 +283,7 @@ mod tests {
     #[test]
     fn test_mul() {
         let mut v = program_to_memory(&vec![2, 5, 6, 7, 99, 10, 25, 0]);
-        let ip = mul(&mut v, 0);
+        let ip = mul(&mut v, 0, &0);
         assert_eq!(ip, 4);
         assert_eq!(v[&7], 250);
     }
@@ -241,18 +291,21 @@ mod tests {
     #[test]
     fn test_mul_immediate() {
         let mut v = program_to_memory(&vec![1002, 5, 6, 7, 99, 10, 25, 0]);
-        let ip = mul(&mut v, 0);
+        let ip = mul(&mut v, 0, &0);
         assert_eq!(ip, 4);
         assert_eq!(v[&7], 60); // 10 * 6
     }
 
     #[test]
     fn test_get_parameter() {
-        let v: Vec<i64> = vec![0, 777, 1, 9];
-        let p = get_parameter(&program_to_memory(&v), 2, &ParamMode::Position);
+        let v: Vec<i64> = vec![0, 777, 1, 9, 5];
+        let p = get_parameter(&program_to_memory(&v), 2, &ParamMode::Position, &0);
         assert_eq!(p, 777);
 
-        let p = get_parameter(&program_to_memory(&v), 3, &ParamMode::Immediate);
+        let p = get_parameter(&program_to_memory(&v), 3, &ParamMode::Immediate, &0);
+        assert_eq!(p, 9);
+
+        let p = get_parameter(&program_to_memory(&v), 4, &ParamMode::Relative, &-2);
         assert_eq!(p, 9);
     }
 
@@ -265,7 +318,7 @@ mod tests {
     #[test]
     fn test_negative_integers() {
         let mut v = program_to_memory(&vec![1101,100,-1,4,0]);
-        let ip = add(&mut v, 0);
+        let ip = add(&mut v, 0, &0);
         assert_eq!(ip, 4);
         assert_eq!(v[&4], 99); // 100 + (-1)
     }
@@ -273,70 +326,70 @@ mod tests {
     #[test]
     fn test_jump_if_true() {
         let mut v: Vec<i64> = vec![1105,1,9];
-        let ip = jump_if_true(&mut program_to_memory(&v), 0);
+        let ip = jump_if_true(&mut program_to_memory(&v), 0, &0);
         assert_eq!(ip, 9);
 
         let mut v: Vec<i64> = vec![1105,0,9];
-        let ip = jump_if_true(&mut program_to_memory(&v), 0);
+        let ip = jump_if_true(&mut program_to_memory(&v), 0, &0);
         assert_eq!(ip, 3);
 
         let mut v: Vec<i64> = vec![5,1,0];
-        let ip = jump_if_true(&mut program_to_memory(&v), 0);
+        let ip = jump_if_true(&mut program_to_memory(&v), 0, &0);
         assert_eq!(ip, 5);
     }
 
     #[test]
     fn test_jump_if_false() {
         let mut v: Vec<i64> = vec![1105,0,9];
-        let ip = jump_if_false(&mut program_to_memory(&v), 0);
+        let ip = jump_if_false(&mut program_to_memory(&v), 0, &0);
         assert_eq!(ip, 9);
 
         let mut v: Vec<i64> = vec![1105,1,9];
-        let ip = jump_if_false(&mut program_to_memory(&v), 0);
+        let ip = jump_if_false(&mut program_to_memory(&v), 0, &0);
         assert_eq!(ip, 3);
 
         let mut v: Vec<i64> = vec![5,2,0];
-        let ip = jump_if_false(&mut program_to_memory(&v), 0);
+        let ip = jump_if_false(&mut program_to_memory(&v), 0, &0);
         assert_eq!(ip, 5);
     }
 
     #[test]
     fn test_less_than() {
         let mut v = program_to_memory(&vec![1106,0,1,4,88]);
-        let ip = less_than(&mut v, 0);
+        let ip = less_than(&mut v, 0, &0);
         assert_eq!(ip, 4);
         assert_eq!(v[&4], 1);
 
         let mut v = program_to_memory(&vec![1106,1,0,4,88]);
-        less_than(&mut v, 0);
+        less_than(&mut v, 0, &0);
         assert_eq!(v[&4], 0);
 
         let mut v = program_to_memory(&vec![6,0,2,4,88]);
-        less_than(&mut v, 0);
+        less_than(&mut v, 0, &0);
         assert_eq!(v[&4], 0);
 
         let mut v = program_to_memory(&vec![6,0,4,4,88]);
-        less_than(&mut v, 0);
+        less_than(&mut v, 0, &0);
         assert_eq!(v[&4], 1);
     }
 
     #[test]
     fn test_equals() {
         let mut v = program_to_memory(&vec![1106,1,1,4,88]);
-        let ip = equals(&mut v, 0);
+        let ip = equals(&mut v, 0, &0);
         assert_eq!(ip, 4);
         assert_eq!(v[&4], 1);
 
         let mut v = program_to_memory(&vec![1106,1,0,4,88]);
-        equals(&mut v, 0);
+        equals(&mut v, 0, &0);
         assert_eq!(v[&4], 0);
 
         let mut v = program_to_memory(&vec![6,5,3,4,88,4]);
-        equals(&mut v, 0);
+        equals(&mut v, 0, &0);
         assert_eq!(v[&4], 1);
 
         let mut v = program_to_memory(&vec![6,0,3,4,88]);
-        equals(&mut v, 0);
+        equals(&mut v, 0, &0);
         assert_eq!(v[&4], 0);
     }
 
@@ -345,7 +398,7 @@ mod tests {
     fn test_input() {
         let mut memory = program_to_memory(&vec![3,2,0]);
         let mut inputs = vec![42, 66];
-        let ip = input(&mut memory, 0, &mut Some(&mut inputs));
+        let ip = input(&mut memory, 0, &mut Some(&mut inputs), &0);
         assert_eq!(ip, 2);
         assert_eq!(memory[&2], 42);
         assert_eq!(inputs.len(), 1);
@@ -355,7 +408,7 @@ mod tests {
     fn test_output() {
         let mut outputs = vec![44];
         let mut memory = program_to_memory(&vec![4,2,666]);
-        let ip = output(&mut memory, 0, &mut Some(&mut outputs));
+        let ip = output(&mut memory, 0, &mut Some(&mut outputs), &0);
         assert_eq!(ip, 2);
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs.first(), Some(&44));
@@ -377,7 +430,7 @@ mod tests {
         let mut outputs = vec![];
         // output whatever is in addr 678, it should default to 0
         let mut memory = program_to_memory(&vec![4,678]);
-        let ip = output(&mut memory, 0, &mut Some(&mut outputs));
+        let ip = output(&mut memory, 0, &mut Some(&mut outputs), &0);
         assert_eq!(ip, 2);
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs.first(), Some(&0));
